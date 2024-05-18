@@ -3,6 +3,10 @@ import autopy
 import mediapipe as mp
 import numpy as np
 
+# Smoothing factor for mouse movement
+SMOOTHING_FACTOR = 0.5
+
+
 screen_width, screen_height = autopy.screen.size()
 
 mp_hands=mp.solutions.hands
@@ -50,6 +54,13 @@ def find_handlandmark_position(img, outputs, hand_no=0):
     return landmark_list, bounding_box
 
 
+# Function to perform exponential smoothing
+def smooth_movement(prev_pos, current_pos, smoothing_factor):
+    smoothed_pos = prev_pos * smoothing_factor + current_pos * (1 - smoothing_factor)
+    return smoothed_pos
+
+
+prev_x, prev_y = autopy.mouse.location()
 while True:
     success, img = cap.read()
     outputs = process_image(img)
@@ -59,22 +70,29 @@ while True:
     if len(LandMarkList)!=0:
         id_x, id_y = LandMarkList[8][1], LandMarkList[8][2]
         thumb_x, thumb_y = LandMarkList[4][1], LandMarkList[4][2]
-        middle_x, middle_y = LandMarkList[12][1], LandMarkList[12][2]
         cv2.circle(img, (id_x, id_y), 15, (255, 255, 255), cv2.FILLED)
         cv2.circle(img, (thumb_x, thumb_y), 15, (255, 0, 255), cv2.FILLED)
-        cv2.circle(img, (middle_x, middle_y), 15, (255, 0, 255), cv2.FILLED)
         
-        dist=np.hypot(middle_x-thumb_x,middle_y-thumb_y)
-        print(dist)
-        if dist<65:
+        dist=np.hypot(id_x-thumb_x,id_y-thumb_y)
+        hand_distance = boundingbox[2] - boundingbox[0]  # Use the width of the bounding box
+        
+        # Normalize the distance based on the screen width
+        normalized_dist = dist / hand_distance
+        print(normalized_dist)
+        if normalized_dist >0.2:
+            current_x, current_y = autopy.mouse.location()
             cv2.circle(img, (id_x, id_y), 15, (0, 255, 0), cv2.FILLED)
-            new_x=np.interp(middle_x,(0,camera_width),(0,screen_width))
-            new_y=np.interp(middle_y,(0,camera_height),(0,screen_height))
+            new_x=np.interp(id_x,(0,camera_width),(0,screen_width))
+            new_y=np.interp(id_y,(0,camera_height),(0,screen_height))
             new_x = max(0, min(new_x, screen_width - 1))
             new_y = max(0, min(new_y, screen_height - 1))
-            autopy.mouse.move(new_x,new_y)
+            new_x = smooth_movement(prev_x, new_x, SMOOTHING_FACTOR)
+            new_y = smooth_movement(prev_y, new_y, SMOOTHING_FACTOR)
+            autopy.mouse.move(int(new_x), int(new_y))
+            prev_x, prev_y = new_x, new_y
+
         else:
-            cv2.circle(img, (middle_x, middle_y), 15, (0, 0, 255), cv2.FILLED)
+            cv2.circle(img, (id_x, id_y), 15, (0, 0, 255), cv2.FILLED)
             autopy.mouse.click()
         
     cv2.imshow("Image", img)
